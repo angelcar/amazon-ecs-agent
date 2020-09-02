@@ -23,11 +23,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cihub/seelog"
+
 	apierrors "github.com/aws/amazon-ecs-agent/agent/api/errors"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
-	"github.com/cihub/seelog"
 )
 
 const (
@@ -570,6 +571,7 @@ func environmentConfig() (Config, error) {
 		SpotInstanceDrainingEnabled:         parseBooleanDefaultFalseConfig("ECS_ENABLE_SPOT_INSTANCE_DRAINING"),
 		GMSACapable:                         parseGMSACapability(),
 		VolumePluginCapabilities:            parseVolumePluginCapabilities(),
+		ExecAgentLogDir:                     os.Getenv("ECS_EXEC_AGENT_LOG_DIR"),
 	}, err
 }
 

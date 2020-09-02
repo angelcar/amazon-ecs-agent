@@ -24,11 +24,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/go-connections/nat"
+
+	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
+
+	"github.com/aws/aws-sdk-go/private/protocol/json/jsonutil"
+	"github.com/cihub/seelog"
+	"github.com/containernetworking/cni/libcni"
+	dockercontainer "github.com/docker/docker/api/types/container"
+	"github.com/pkg/errors"
 
 	"github.com/aws/amazon-ecs-agent/agent/acs/model/ecsacs"
 	apiappmesh "github.com/aws/amazon-ecs-agent/agent/api/appmesh"
@@ -52,11 +59,6 @@ import (
 	resourcetype "github.com/aws/amazon-ecs-agent/agent/taskresource/types"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
-	"github.com/aws/aws-sdk-go/private/protocol/json/jsonutil"
-	"github.com/cihub/seelog"
-	"github.com/containernetworking/cni/libcni"
-	dockercontainer "github.com/docker/docker/api/types/container"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -140,6 +142,22 @@ const (
 
 	// specifies awsvpc type mode for a task
 	AWSVPCNetworkMode = "awsvpc"
+
+	internalExecAgentNamePrefix          = "__internal__exec-agent"
+	internalExecAgentLogVolumeNamePrefix = internalExecAgentNamePrefix + "-log"
+	internalExecAgentCertVolumeName      = internalExecAgentNamePrefix + "-tls-cert"
+
+	// TODO: [ecs-exec] decide if this needs to be configurable or put in a specific place in our optimized AMIs
+	execAgentHostBinDir           = "/home/ec2-user/ssm-agent/linux_amd64"
+	execAgentBinName              = "amazon-ssm-agent"
+	execAgentSessionWorkerBinName = "ssm-session-worker"
+	execAgentSessionLoggerBinName = "ssm-session-logger"
+
+	// TODO: [ecs-exec] decide if this needs to be configurable or put in a specific place in our optimized AMIs
+	execAgentContainerLogDir   = "/var/log/amazon/ssm"
+	execAgentContainerBinDir   = "/usr/bin"
+	execAgentHostCertFile      = "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+	execAgentContainerCertFile = "/etc/ssl/certs/ca-certificates.crt"
 )
 
 // TaskOverrides are the overrides applied to a task
@@ -338,11 +356,14 @@ func (task *Task) PostUnmarshalTask(cfg *config.Config,
 	task.initSecretResources(credentialsManager, resourceFields)
 
 	task.initializeCredentialsEndpoint(credentialsManager)
+
 	// NOTE: initializeVolumes needs to be after initializeCredentialsEndpoint, because EFS volume might
 	// need the credentials endpoint constructed by it.
 	if err := task.initializeVolumes(cfg, dockerClient, ctx); err != nil {
 		return err
 	}
+
+	task.setupExecAgent(cfg)
 
 	if err := task.addGPUResource(cfg); err != nil {
 		seelog.Errorf("Task [%s]: could not initialize GPU associations: %v", task.Arn, err)
@@ -478,7 +499,6 @@ func (task *Task) initializeDockerLocalVolumes(dockerClient dockerapi.DockerClie
 					resourcestatus.ResourceStatus(taskresourcevolume.VolumeCreated),
 					apicontainerstatus.ContainerPulled)
 				requiredLocalVolumes = append(requiredLocalVolumes, mountPoint.SourceVolume)
-
 			}
 		}
 	}
@@ -557,6 +577,83 @@ func (task *Task) initializeEFSVolumes(cfg *config.Config, dockerClient dockerap
 		err := task.addEFSVolumes(ctx, cfg, dockerClient, &task.Volumes[i], efsvol)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func buildExecAgentBinaryName(binaryName string) string {
+	return fmt.Sprintf("%s-%s", internalExecAgentNamePrefix, binaryName)
+}
+
+// setupExecAgent specifies the necessary volumes and mount points in all of the task containers in order for the
+// exec agent to run upon container start.
+func (task *Task) setupExecAgent(cfg *config.Config) error {
+	if !task.IsExecAgentEnabled() {
+		return nil
+	}
+
+	tId, err := task.GetID()
+	if err != nil {
+		return err
+	}
+
+	execAgentBinNames := []string{execAgentBinName, execAgentSessionWorkerBinName, execAgentSessionLoggerBinName}
+
+	// Append exec agent binaries to task volumes
+	for _, bn := range execAgentBinNames {
+		task.Volumes = append(task.Volumes,
+			TaskVolume{
+				Type: HostVolumeType,
+				Name: buildExecAgentBinaryName(bn),
+				Volume: &taskresourcevolume.FSHostVolume{
+					FSSourcePath: filepath.Join(execAgentHostBinDir, bn),
+				},
+			})
+	}
+
+	// Append certificates volume
+	task.Volumes = append(task.Volumes,
+		TaskVolume{
+			Type: HostVolumeType,
+			Name: internalExecAgentCertVolumeName,
+			Volume: &taskresourcevolume.FSHostVolume{
+				FSSourcePath: execAgentHostCertFile,
+			},
+		})
+
+	// Add log volumes and mount points to all containers in this task
+	for _, c := range task.Containers {
+		logSuffix := fmt.Sprintf("%s-%s", tId, c.Name)
+		lvn := fmt.Sprintf("%s-%s", internalExecAgentLogVolumeNamePrefix, logSuffix)
+		task.Volumes = append(task.Volumes, TaskVolume{
+			Type: HostVolumeType,
+			Name: lvn,
+			Volume: &taskresourcevolume.FSHostVolume{
+				FSSourcePath: filepath.Join(cfg.ExecAgentLogDir, logSuffix),
+			},
+		})
+
+		c.MountPoints = append(c.MountPoints,
+			apicontainer.MountPoint{
+				SourceVolume:  lvn,
+				ContainerPath: execAgentContainerLogDir,
+				ReadOnly:      false,
+			},
+			apicontainer.MountPoint{
+				SourceVolume:  internalExecAgentCertVolumeName,
+				ContainerPath: execAgentContainerCertFile,
+				ReadOnly:      true,
+			},
+		)
+
+		for _, bn := range execAgentBinNames {
+			c.MountPoints = append(c.MountPoints,
+				apicontainer.MountPoint{
+					SourceVolume:  buildExecAgentBinaryName(bn),
+					ContainerPath: filepath.Join(execAgentContainerBinDir, bn),
+					ReadOnly:      true,
+				})
 		}
 	}
 	return nil
@@ -2691,4 +2788,9 @@ func (task *Task) SetLocalIPAddress(addr string) {
 	defer task.lock.Unlock()
 
 	task.LocalIPAddressUnsafe = addr
+}
+
+func (task *Task) IsExecAgentEnabled() bool {
+	// TODO: [ecs-exec] Wire this to the model when control plane changes are ready
+	return true
 }

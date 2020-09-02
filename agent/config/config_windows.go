@@ -26,8 +26,11 @@ import (
 const (
 	// AgentCredentialsAddress is used to serve the credentials for tasks.
 	AgentCredentialsAddress = "127.0.0.1"
+
+	defaultLogDirName = `log`
+
 	// defaultAuditLogFile specifies the default audit log filename
-	defaultCredentialsAuditLogFile = `log\audit.log`
+	defaultCredentialsAuditLogFile = defaultLogDirName + `\audit.log`
 	// When using IAM roles for tasks on Windows, the credential proxy consumes port 80
 	httpPort = 80
 	// Remote Desktop / Terminal Services
@@ -50,6 +53,9 @@ const (
 	minimumContainerStartTimeout = 2 * time.Minute
 	// default image pull inactivity time is extra time needed on container extraction
 	defaultImagePullInactivityTimeout = 3 * time.Minute
+
+	// default directory to store ecs exec logs
+	defaultExecAgentLogDir = defaultLogDirName + `\exec`
 )
 
 // DefaultConfig returns the default configuration for Windows
@@ -105,6 +111,7 @@ func DefaultConfig() Config {
 		PollMetrics:                         BooleanDefaultTrue{Value: ExplicitlyDisabled},
 		PollingMetricsWaitDuration:          DefaultPollingMetricsWaitDuration,
 		GMSACapable:                         true,
+		ExecAgentLogDir:                     filepath.Join(ecsRoot,defaultExecAgentLogDir),
 	}
 }
 

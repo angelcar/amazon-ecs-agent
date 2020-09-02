@@ -24,6 +24,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cihub/seelog"
+	"github.com/docker/docker/api/types"
+	dockercontainer "github.com/docker/docker/api/types/container"
+	"github.com/pkg/errors"
+
 	"github.com/aws/amazon-ecs-agent/agent/api"
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
@@ -49,11 +54,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	utilsync "github.com/aws/amazon-ecs-agent/agent/utils/sync"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
-	dockercontainer "github.com/docker/docker/api/types/container"
-
-	"github.com/cihub/seelog"
-	"github.com/docker/docker/api/types"
-	"github.com/pkg/errors"
 )
 
 const (

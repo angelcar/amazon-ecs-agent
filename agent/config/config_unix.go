@@ -40,6 +40,9 @@ const (
 	minimumContainerStartTimeout = 45 * time.Second
 	// default docker inactivity time is extra time needed on container extraction
 	defaultImagePullInactivityTimeout = 1 * time.Minute
+
+	// default directory to store ecs exec logs
+	defaultExecAgentLogDir = "/var/log/ecs/exec"
 )
 
 // DefaultConfig returns the default configuration for Linux
@@ -84,6 +87,7 @@ func DefaultConfig() Config {
 		NvidiaRuntime:                       DefaultNvidiaRuntime,
 		CgroupCPUPeriod:                     defaultCgroupCPUPeriod,
 		GMSACapable:                         false,
+		ExecAgentLogDir:                     defaultExecAgentLogDir,
 	}
 }
 

@@ -318,4 +318,7 @@ type Config struct {
 
 	// VolumePluginCapabilities specifies the capabilities of the ecs volume plugin.
 	VolumePluginCapabilities []string
+
+	// ExecAgentLogDir specifies the directory where the exec agent logs will be stored.
+	ExecAgentLogDir string
 }

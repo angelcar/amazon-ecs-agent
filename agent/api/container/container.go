@@ -266,6 +266,9 @@ type Container struct {
 	// the JSON body while saving the state
 	SteadyStateStatusUnsafe *apicontainerstatus.ContainerStatus `json:"SteadyStateStatus,omitempty"`
 
+	// ExecAgentMetadata holds metadata about the exec agent running inside the container (i.e. SSM Agent).
+	ExecAgentMetadata ExecAgentMetadata `json:"execAgentMetadata"`
+
 	createdAt  time.Time
 	startedAt  time.Time
 	finishedAt time.Time
@@ -323,6 +326,12 @@ type Secret struct {
 	Type          string `json:"type"`
 	Provider      string `json:"provider"`
 	Target        string `json:"target"`
+}
+
+// ExecAgentMetadata holds metadata about the exec agent running inside the container (i.e. SSM Agent).
+type ExecAgentMetadata struct {
+	PID          string `json:"pid"`
+	DockerExecID string `json:"dockerExecId"`
 }
 
 // GetSecretResourceCacheKey returns the key required to access the secret
@@ -1166,4 +1175,16 @@ func (c *Container) GetTaskARN() string {
 	defer c.lock.RUnlock()
 
 	return c.TaskARNUnsafe
+}
+
+func (c *Container) SetExecAgentMetadata(metadata ExecAgentMetadata) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.ExecAgentMetadata = metadata
+}
+
+func (c *Container) GetExecAgentMetadata() ExecAgentMetadata {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.ExecAgentMetadata
 }
