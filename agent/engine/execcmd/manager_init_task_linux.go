@@ -118,7 +118,8 @@ func (m *manager) InitializeContainer(taskId string, container *apicontainer.Con
 	// Append TLS cert mount
 	hostConfig.Binds = append(hostConfig.Binds, getReadOnlyBindMountMapping(
 		HostCertFile, // TODO: [ecs-exec] decision pending - review the location of the certs in the host
-		filepath.Join(containerDepsFolder, ContainerCertFileSuffix)))
+		"/etc/ssl/certs/ca-certificates.crt"))
+	//filepath.Join(containerDepsFolder, ContainerCertFileSuffix)))
 
 	// Add ssm log bind mount
 	cn := fileSystemSafeContainerName(container)

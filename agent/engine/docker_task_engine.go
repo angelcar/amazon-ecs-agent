@@ -1124,6 +1124,15 @@ func (engine *DockerTaskEngine) createContainer(task *apitask.Task, container *a
 		}
 	}
 
+	// TODO: DELETE THIS
+	if container.Name == "scratchsleeper" {
+		container.ManagedAgentsUnsafe = []apicontainer.ManagedAgent{
+			{
+				Name: execcmd.ExecuteCommandAgentName,
+			},
+		}
+	}
+
 	if execcmd.IsExecEnabledContainer(container) {
 		tId, err := task.GetID()
 		if err != nil {
